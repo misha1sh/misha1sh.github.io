@@ -122,6 +122,13 @@ function splitByTokens(text) {
         }
     }
 
+    if (beforeLastEq != null && beforeLastEq != "") {
+        res.push([
+            beforeLastEq,
+            betweenLastEqAndNewLine.replace(/\t+/g, "").trim()
+        ]);
+    }
+
     return res;
 }
 
@@ -325,10 +332,15 @@ window.addEventListener("load", function() {
     const outputTextElement = document.getElementById("out");
 
     inputTextElement.onkeyup = function() {
-        const [header, body] = vanyaToJson(inputTextElement.value);
-        outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(header, null, '  ')) + "<br><br>" +
-        syntaxHighlight(JSON.stringify(body, null, '  '));
-    //    outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(splitByTokens(inputTextElement.value), null, '  '))
+        try {
+            const [header, body] = vanyaToJson(inputTextElement.value);
+            outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(header, null, '  ')) + "<br><br>" +
+            syntaxHighlight(JSON.stringify(body, null, '  '));
+        } catch (ex) {
+            outputTextElement.innerHTML = ex;
+        }
+
+      //outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(splitByTokens(inputTextElement.value), null, '  '))
     }
     inputTextElement.value = testText;
     inputTextElement.onkeyup();
