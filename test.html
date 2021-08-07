@@ -1,0 +1,349 @@
+<html>
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+<meta content="utf-8" http-equiv="encoding">
+
+        <title>kek</title>
+    </head>
+
+    <body>
+
+        <table>
+            <tr>
+                <td style="width:50%; height: 100%;">
+                    <textarea id="inp" cols="130" rows="100"></textarea>
+                </td>
+                <td style="width:100%; display:block;">
+                    <pre id="out">text</pre>
+                </td>
+            </tr>
+
+          </table>
+
+<style>
+    pre {outline: 1px solid #ccc; padding: 5px; margin: 5px; }
+.string { color: green; }
+.number { color: darkorange; }
+.boolean { color: blue; }
+.null { color: magenta; }
+.key { color: red; }
+
+</style>
+
+<script>
+// 11:30
+
+
+const testText = `
+header=
+	description=
+		Это пример диалога
+
+	person=
+		name=  Кот
+		color= 1
+		side=  left
+		aka=   к, кот, котэ, 1
+
+	персонаж=
+		имя=     Алиса
+		сторона= п
+		ака=     алиса, а, 2
+
+part=
+	partname= Начало
+	page=
+		автор=
+		Завидев Алису, Кот только улыбнулся.
+		Вид у него был добродушный, но когти длинные,
+		а зубов так много, что Алиса сразу поняла,
+		что с ним шутки плохи.
+		алиса=
+		Котик! Чешик!
+		автор=
+		робко начала Алиса.
+		Она не знала, понравится ли ему это имя,
+		но он только шире улыбнулся в ответ.
+		автор=
+		Ничего, - подумала Алиса, – кажется, доволен. Вслух же она спросила:
+		алиса=
+		Скажите, пожалуйста, куда мне отсюда идти?
+		кот=
+		А куда ты хочешь попасть?
+		автор=
+		Ответил кот
+	page=
+		алиса=
+		Мне все равно…
+		котэ=
+		Тогда все равно, куда и идти
+		алиса=
+		… только бы попасть куда-нибудь
+part=
+	partname= Середина
+	path= res/mid_part.txt
+`
+
+
+const tokenTypes = {
+    STRING: "STRING_TOKEN",
+    INT: "INT_TOKEN",
+    STRING_ARRAY: "STRING_ARRAY_TOKEN",
+    OBJECT: "OBJECT_TOKEN"
+}
+
+function splitByTokens(text) {
+    let res = [];
+
+    let beforeLastEq = null;
+    let betweenLastEqAndNewLine = "";
+    let cur = "";
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] == "\n") {
+            if (betweenLastEqAndNewLine != "") {
+                betweenLastEqAndNewLine = betweenLastEqAndNewLine + "\n" + cur;
+            } else {
+                betweenLastEqAndNewLine = cur;
+            }
+            cur = "";
+        } else if (text[i] == "=") {
+            if (beforeLastEq != null) {
+                res.push([
+                  beforeLastEq,
+                  betweenLastEqAndNewLine.replace(/\t+/g, "").trim()
+                ]);
+            }
+
+            beforeLastEq = cur.trim();
+            betweenLastEqAndNewLine = "";
+            cur = "";
+        } else {
+            cur += text[i];
+        }
+    }
+
+    return res;
+}
+
+function parseTokenTree(tokenTree, tokens, textPos) {
+    let res = {};
+    let i = textPos;
+    for (; i < tokens.length; i++) {
+        let token = tokens[i][0]
+        let fieldValue = tokens[i][1];
+
+        let failedTokens = [];
+        let found = false;
+        for (const [key, value] of Object.entries(tokenTree)) {
+            if (key == token ||
+                !Array.isArray(value.aka) && value.aka == token ||
+                Array.isArray(value.aka) && value.aka.includes(token)) {
+                    console.log("found", i, token, fieldValue, failedTokens);
+
+
+                let resValue = null;
+                if (value.type == tokenTypes.OBJECT) {
+                    if (fieldValue != "") {
+                        throw "After " + key + " expect another keys, not value " + fieldValue;
+                    }
+                    [resValue, i] = parseTokenTree(value.fields, tokens, i + 1);
+                } else if (value.type == tokenTypes.STRING) {
+                    resValue = fieldValue;
+                } else if (value.type == tokenTypes.INT) {
+                    resValue = parseInt(fieldValue);
+                } else if (value.type == tokenTypes.STRING_ARRAY) {
+                    resValue = fieldValue.split(",").map(s => s.trim());
+                }
+
+                if ('isArray' in value && value.isArray === true) {
+                    let keyToPut = key;
+                    let valueToPut = resValue;
+                    if ('putToArray' in value) {
+                        keyToPut = value['putToArray'];
+                        valueToPut = {
+                            "key": key,
+                            "value": resValue
+                        }
+                    }
+                    if (!res.hasOwnProperty(keyToPut)) {
+                        res[keyToPut] = [];
+                    }
+                    res[keyToPut].push(valueToPut);
+
+                } else if (key in res) {
+                    console.log(value);
+                    throw "Found more than one field with key " + key;
+                } else {
+                    res[key] = resValue;
+                }
+                console.log(key, resValue, res);
+
+                found = true;
+                break;
+            } else {
+                failedTokens.push(key);
+                if (Array.isArray(value.aka)) {
+                    failedTokens = failedTokens.concat(value.aka);
+                } else {
+                    failedTokens.push(value.aka);
+                }
+            }
+        }
+        if (!found) {
+            console.log("failed", i, token, fieldValue, failedTokens);
+            i--;
+            break;
+        } else {
+        }
+    }
+
+    return [res, i];
+}
+
+function vanyaToJson(text) {
+
+    const headerTokenTree = {
+        "header": {
+            type: tokenTypes.OBJECT,
+            aka: "легенда",
+            fields: {
+                "title": {
+                    type: tokenTypes.STRING,
+                    aka: "название"
+                },
+
+                "description": {
+                    type: tokenTypes.STRING,
+                    aka: "описание"
+                },
+                "person": {
+                    type: tokenTypes.OBJECT,
+                    isArray: true,
+                    aka: "персонаж",
+                    fields: {
+                        "name" : {
+                            type: tokenTypes.STRING,
+                            aka: "имя"
+                        },
+                        "color" : {
+                            type: tokenTypes.INT,
+                            aka: "цвет"
+                        },
+                        "side": {
+                            type: tokenTypes.STRING,
+                            aka: "сторона"
+                        },
+                        "aka": {
+                            type: tokenTypes.STRING_ARRAY,
+                            aka: "ака"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    const tokens = splitByTokens(text);
+    const [header, headerEnd] = parseTokenTree(headerTokenTree, tokens, 0);
+
+    // validateHeader(header);
+
+    let pageFieldsTree = {
+        '0': {
+            type: tokenTypes.STRING,
+            isArray: true,
+            putToArray: "messages",
+            aka: ['author', 'автор']
+        }
+    };
+    for (let person of header["header"]["person"]) {
+        console.log(person);
+        pageFieldsTree[person["name"]] = {
+            type: tokenTypes.STRING,
+            isArray: true,
+            putToArray: "messages",
+            aka: person.aka
+        }
+    }
+
+
+    const bodyTokenTree = {
+        "part": {
+            type: tokenTypes.OBJECT,
+            isArray: true,
+            aka: "глава",
+            fields: {
+                "partname": {
+                    type: tokenTypes.STRING,
+                    aka: "название"
+                },
+                "page": {
+                    type: tokenTypes.OBJECT,
+                    isArray: true,
+                    aka: ["страница", "стр"],
+                    fields: pageFieldsTree,
+                },
+                "path": {
+                    type: tokenTypes.STRING,
+                    aka: "путь"
+                }
+
+            }
+        }
+    }
+
+    console.log("\n\n");
+    const [body, lastToken] = parseTokenTree(bodyTokenTree, tokens, headerEnd + 1);
+
+    return [header["header"], body];
+}
+function syntaxHighlight(json) {
+    if (typeof json != 'string') {
+         json = JSON.stringify(json, undefined, 2);
+    }
+    json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+        var cls = 'number';
+        if (/^"/.test(match)) {
+            if (/:$/.test(match)) {
+                cls = 'key';
+            } else {
+                cls = 'string';
+            }
+        } else if (/true|false/.test(match)) {
+            cls = 'boolean';
+        } else if (/null/.test(match)) {
+            cls = 'null';
+        }
+        return '<span class="' + cls + '">' + match + '</span>';
+    });
+}
+
+
+window.addEventListener("load", function() {
+    const inputTextElement = document.getElementById("inp");
+    const outputTextElement = document.getElementById("out");
+
+    inputTextElement.onkeyup = function() {
+        const [header, body] = vanyaToJson(inputTextElement.value);
+        outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(header, null, '  ')) + "<br><br>" +
+        syntaxHighlight(JSON.stringify(body, null, '  '));
+    //    outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(splitByTokens(inputTextElement.value), null, '  '))
+    }
+    inputTextElement.value = testText;
+    inputTextElement.onkeyup();
+
+
+    console.log(inputTextElement);
+});
+/*
+document.write(JSON.stringify(splitByTokens(testText)));
+document.write("<br><br>");
+const [header, body] = vanyaToJson(testText);
+document.write(JSON.stringify(header));
+document.write("<br><br>");
+document.write(JSON.stringify(body));*/
+</script>
+
+</body>
+</html>
