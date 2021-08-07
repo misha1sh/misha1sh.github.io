@@ -122,6 +122,12 @@ function splitByTokens(text) {
         }
     }
 
+
+    if (betweenLastEqAndNewLine != "") {
+        betweenLastEqAndNewLine = betweenLastEqAndNewLine + "\n" + cur;
+    } else {
+        betweenLastEqAndNewLine = cur;
+    }
     if (beforeLastEq != null && beforeLastEq != "") {
         res.push([
             beforeLastEq,
@@ -132,20 +138,29 @@ function splitByTokens(text) {
     return res;
 }
 
-function parseTokenTree(tokenTree, tokens, textPos) {
+var filterInt = function (value) {
+  if (/^(\-|\+)?([0-9]+)$/.test(value))
+    return Number(value);
+  return NaN;
+}
+
+
+function parseTokenTree(tokenTree, tokens, textPos, failedTokensForI) {
     let res = {};
     let i = textPos;
     for (; i < tokens.length; i++) {
         let token = tokens[i][0]
         let fieldValue = tokens[i][1];
 
-        let failedTokens = [];
+        if (!(i in failedTokensForI)) {
+            failedTokensForI[i] = [];
+        }
         let found = false;
         for (const [key, value] of Object.entries(tokenTree)) {
             if (key == token ||
                 !Array.isArray(value.aka) && value.aka == token ||
                 Array.isArray(value.aka) && value.aka.includes(token)) {
-                    console.log("found", i, token, fieldValue, failedTokens);
+                    console.log("found", i, token, fieldValue, failedTokensForI);
 
 
                 let resValue = null;
@@ -153,11 +168,14 @@ function parseTokenTree(tokenTree, tokens, textPos) {
                     if (fieldValue != "") {
                         throw "After " + key + " expect another keys, not value " + fieldValue;
                     }
-                    [resValue, i] = parseTokenTree(value.fields, tokens, i + 1);
+                    [resValue, i] = parseTokenTree(value.fields, tokens, i + 1, failedTokensForI);
                 } else if (value.type == tokenTypes.STRING) {
                     resValue = fieldValue;
                 } else if (value.type == tokenTypes.INT) {
-                    resValue = parseInt(fieldValue);
+                    resValue = filterInt(fieldValue);
+                    if (isNaN(resValue)) {
+                        throw "Illegal number format " + fieldValue;
+                    }
                 } else if (value.type == tokenTypes.STRING_ARRAY) {
                     resValue = fieldValue.split(",").map(s => s.trim());
                 }
@@ -188,24 +206,24 @@ function parseTokenTree(tokenTree, tokens, textPos) {
                 found = true;
                 break;
             } else {
-                failedTokens.push(key);
+                failedTokensForI[i].push(key);
                 if (Array.isArray(value.aka)) {
-                    failedTokens = failedTokens.concat(value.aka);
+                    failedTokensForI[i] = failedTokensForI[i].concat(value.aka);
                 } else {
-                    failedTokens.push(value.aka);
+                    failedTokensForI[i].push(value.aka);
                 }
             }
         }
         if (!found) {
-            console.log("failed", i, token, fieldValue, failedTokens);
-            i--;
+            console.log("failed", i, token, fieldValue, failedTokensForI);
             break;
-        } else {
         }
     }
 
-    return [res, i];
+    return [res, i - 1];
 }
+
+
 
 function vanyaToJson(text) {
 
@@ -251,7 +269,8 @@ function vanyaToJson(text) {
     }
 
     const tokens = splitByTokens(text);
-    const [header, headerEnd] = parseTokenTree(headerTokenTree, tokens, 0);
+    let failedTokensForI = {};
+    const [header, headerEnd] = parseTokenTree(headerTokenTree, tokens, 0, failedTokensForI);
 
     // validateHeader(header);
 
@@ -263,16 +282,19 @@ function vanyaToJson(text) {
             aka: ['author', 'автор']
         }
     };
-    for (let person of header["header"]["person"]) {
-        console.log(person);
-        pageFieldsTree[person["name"]] = {
-            type: tokenTypes.STRING,
-            isArray: true,
-            putToArray: "messages",
-            aka: person.aka
+
+    if ("header" in header && "person" in header["header"]) {
+        for (let person of header["header"]["person"]) {
+            if ("name" in person) {
+                pageFieldsTree[person["name"]] = {
+                    type: tokenTypes.STRING,
+                    isArray: true,
+                    putToArray: "messages",
+                    aka: person.aka || [],
+                }
+            }
         }
     }
-
 
     const bodyTokenTree = {
         "part": {
@@ -299,8 +321,11 @@ function vanyaToJson(text) {
         }
     }
 
-    console.log("\n\n");
-    const [body, lastToken] = parseTokenTree(bodyTokenTree, tokens, headerEnd + 1);
+    const [body, lastToken] = parseTokenTree(bodyTokenTree, tokens, headerEnd + 1, failedTokensForI);
+
+    if (lastToken != tokens.length - 1) {
+        throw "Token for " + tokens[lastToken + 1] + " not found. Expected one of " + JSON.stringify(failedTokensForI[lastToken + 1]);
+    }
 
     return [header["header"], body];
 }
