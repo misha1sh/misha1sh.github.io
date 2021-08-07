@@ -7,13 +7,16 @@
     </head>
 
     <body>
-
+        <select size="2" id="chooseShowType">
+            <option selected value="JSON">JSON</option>
+            <option value="TOKENS">TOKENS</option>
+        </select>
         <table>
             <tr>
-                <td style="width:50%; height: 100%;">
+                <td style="width:50%;vertical-align: top;">
                     <textarea id="inp" cols="130" rows="100"></textarea>
                 </td>
-                <td style="width:100%; display:block;">
+                <td style="width:100%; vertical-align: top;">
                     <pre id="out">text</pre>
                 </td>
             </tr>
@@ -88,6 +91,7 @@ part=
 const tokenTypes = {
     STRING: "STRING_TOKEN",
     INT: "INT_TOKEN",
+    BOOL: "BOOL_TOKEN",
     STRING_ARRAY: "STRING_ARRAY_TOKEN",
     OBJECT: "OBJECT_TOKEN"
 }
@@ -97,42 +101,50 @@ function splitByTokens(text) {
 
     let beforeLastEq = null;
     let betweenLastEqAndNewLine = "";
+    let wasNewLine = true;
     let cur = "";
+
+    function processNewLine() {
+        if (betweenLastEqAndNewLine != "") {
+            betweenLastEqAndNewLine = betweenLastEqAndNewLine + "\n" + cur;
+        } else {
+            betweenLastEqAndNewLine = cur;
+        }
+        wasNewLine = true;
+        cur = "";
+    }
+
+    function processEq() {
+        if (beforeLastEq != null) {
+            res.push([
+                beforeLastEq,
+                betweenLastEqAndNewLine.replaceAll(/\t+/g, "").replaceAll("\\=", "=").replaceAll("\\\\", "\\").trim()
+            ]);
+        } else if (betweenLastEqAndNewLine != "") {
+            throw "Got '" + betweenLastEqAndNewLine + "' before first token."
+        }
+
+        beforeLastEq = cur.trim();
+        wasNewLine = false;
+        betweenLastEqAndNewLine = "";
+        cur = "";
+    }
+
     for (let i = 0; i < text.length; i++) {
         if (text[i] == "\n") {
-            if (betweenLastEqAndNewLine != "") {
-                betweenLastEqAndNewLine = betweenLastEqAndNewLine + "\n" + cur;
-            } else {
-                betweenLastEqAndNewLine = cur;
-            }
-            cur = "";
-        } else if (text[i] == "=") {
-            if (beforeLastEq != null) {
-                res.push([
-                  beforeLastEq,
-                  betweenLastEqAndNewLine.replace(/\t+/g, "").trim()
-                ]);
-            }
-
-            beforeLastEq = cur.trim();
-            betweenLastEqAndNewLine = "";
-            cur = "";
+            processNewLine();
+        } else if (text[i] == "=" && wasNewLine && (i == 0 || text[i - 1] != "\\")) {
+            processEq();
         } else {
             cur += text[i];
         }
     }
 
-
-    if (betweenLastEqAndNewLine != "") {
-        betweenLastEqAndNewLine = betweenLastEqAndNewLine + "\n" + cur;
-    } else {
-        betweenLastEqAndNewLine = cur;
+    if (cur != "") {
+        processNewLine();
     }
-    if (beforeLastEq != null && beforeLastEq != "") {
-        res.push([
-            beforeLastEq,
-            betweenLastEqAndNewLine.replace(/\t+/g, "").trim()
-        ]);
+    if (beforeLastEq != "") {
+        processEq();
     }
 
     return res;
@@ -178,6 +190,14 @@ function parseTokenTree(tokenTree, tokens, textPos, failedTokensForI) {
                     }
                 } else if (value.type == tokenTypes.STRING_ARRAY) {
                     resValue = fieldValue.split(",").map(s => s.trim());
+                } else if (value.type == tokenTypes.BOOL) {
+                    if (fieldValue == "true" || fieldValue == "да") {
+                        resValue = true;
+                    } else if (fieldValue == "false" || fieldValue == "нет") {
+                        resValue = false;
+                    } else {
+                        throw "Illegal bool format: '" + fieldValue +"'. expected one of 'true' 'false' 'да' 'нет'";
+                    }
                 }
 
                 if ('isArray' in value && value.isArray === true) {
@@ -236,7 +256,10 @@ function vanyaToJson(text) {
                     type: tokenTypes.STRING,
                     aka: "название"
                 },
-
+                "shownm": {
+                    type: tokenTypes.BOOL,
+                    aka: ["shownames", "showname"]
+                },
                 "description": {
                     type: tokenTypes.STRING,
                     aka: "описание"
@@ -356,19 +379,25 @@ window.addEventListener("load", function() {
     const inputTextElement = document.getElementById("inp");
     const outputTextElement = document.getElementById("out");
 
-    inputTextElement.onkeyup = function() {
-        try {
-            const [header, body] = vanyaToJson(inputTextElement.value);
-            outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(header, null, '  ')) + "<br><br>" +
-            syntaxHighlight(JSON.stringify(body, null, '  '));
-        } catch (ex) {
-            outputTextElement.innerHTML = ex;
+    const chooseShowType = document.getElementById("chooseShowType");
+    function handler() {
+        if (chooseShowType.value == "JSON") {
+            try {
+                const [header, body] = vanyaToJson(inputTextElement.value);
+                outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(header, null, '  ')) + "<br><br>" +
+                syntaxHighlight(JSON.stringify(body, null, '  '));
+            } catch (ex) {
+                outputTextElement.innerHTML = ex;
+            }
+        } else if (chooseShowType.value == "TOKENS") {
+             outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(splitByTokens(inputTextElement.value), null, '  '))
         }
-
-      //outputTextElement.innerHTML = syntaxHighlight(JSON.stringify(splitByTokens(inputTextElement.value), null, '  '))
     }
+
+    inputTextElement.onkeyup = handler;
+    chooseShowType.onchange = handler;
+    handler();
     inputTextElement.value = testText;
-    inputTextElement.onkeyup();
 
 
     console.log(inputTextElement);
