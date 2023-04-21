@@ -1,0 +1,1 @@
+(self["webpackChunkapp_web"]=self["webpackChunkapp_web"]||[]).push([[772],{1772:function(){}}]);
